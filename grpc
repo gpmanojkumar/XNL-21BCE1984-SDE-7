@@ -1,0 +1,72 @@
+// Backend: gRPC Service (Node.js with Express & gRPC)
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+const winston = require('winston');
+const promClient = require('prom-client');
+const { trace, context } = require('@opentelemetry/api');
+
+const PROTO_PATH = './service.proto';
+const packageDefinition = protoLoader.loadSync(PROTO_PATH, {});
+const serviceProto = grpc.loadPackageDefinition(packageDefinition).service;
+
+// Logger Setup (Winston)
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [new winston.transports.Console(), new winston.transports.File({ filename: 'logs.log' })]
+});
+
+// Prometheus Metrics
+const register = new promClient.Registry();
+const requestCounter = new promClient.Counter({
+  name: 'rpc_requests_total',
+  help: 'Total number of RPC requests',
+  registers: [register]
+});
+
+const server = new grpc.Server();
+server.addService(serviceProto.RPCService.service, {
+  processRequest: (call, callback) => {
+    const start = Date.now();
+    requestCounter.inc();
+    logger.info(`Received request: ${JSON.stringify(call.request)}`);
+    
+    // Simulate processing
+    setTimeout(() => {
+      const response = { message: `Processed: ${call.request.input}` };
+      logger.info(`Sending response: ${JSON.stringify(response)}`);
+      callback(null, response);
+    }, 500);
+  }
+});
+
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () => {
+  server.start();
+  console.log('gRPC Server running on port 50051');
+});
+
+// Frontend: React.js Dashboard (Basic Setup)
+import React, { useEffect, useState } from 'react';
+import { Line } from 'react-chartjs-2';
+
+const Dashboard = () => {
+  const [metrics, setMetrics] = useState([]);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      const response = await fetch('/metrics');
+      const text = await response.text();
+      setMetrics(text);
+    };
+    fetchMetrics();
+  }, []);
+
+  return (
+    <div>
+      <h1>Performance Dashboard</h1>
+      <pre>{metrics}</pre>
+    </div>
+  );
+};
+
+export default Dashboard;
